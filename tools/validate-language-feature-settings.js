@@ -37,6 +37,7 @@ const createPage = (callFunction) => {
         return require(path.join(root, "miniprogram", "utils", "lessonTemplates"));
       }
       if (request === "../../utils/cloud") return loadSandboxCloud(sandbox.wx);
+      if (request === "../../utils/learningStage") return require(path.join(root, "miniprogram", "utils", "learningStage"));
       throw new Error(`Unexpected page dependency: ${request}`);
     },
     Page: (value) => { definition = value; },

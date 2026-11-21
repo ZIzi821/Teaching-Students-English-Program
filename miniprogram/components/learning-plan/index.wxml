@@ -1,7 +1,7 @@
 <view class="plan" wx:if="{{plan}}">
   <view class="plan-card">
     <view class="plan-stage-head">
-      <view class="plan-stage-count">第 {{plan.stageNumber}} / {{plan.stageCount}} 阶段</view>
+      <view class="plan-stage-count">{{plan.positionText}}</view>
       <picker mode="selector" range="{{plan.stageOptions}}" range-key="displayLabel" value="{{plan.stageIndex}}" disabled="{{saving}}" bindchange="onStageChange">
         <view class="plan-adjust">调整阶段</view>
       </picker>

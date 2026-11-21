@@ -1,3 +1,4 @@
+const { describeStagePosition } = require("../../utils/learningStage");
 const { callCloud } = require("../../utils/cloud");
 
 const SKILL_GROUPS = [
@@ -10,6 +11,7 @@ const buildPlanView = (radar) => {
   if (!radar || !radar.available) return null;
   const stages = radar.stageOptions || [];
   const currentIndex = Math.max(0, stages.findIndex((stage) => stage.stageId === radar.currentStage.stageId));
+  const position = describeStagePosition(stages, radar.currentStage.stageId);
   const skills = (radar.skills || []).filter((skill) => skill.stateTone !== "inactive");
   const groups = SKILL_GROUPS.map((group) => ({
     key: group.key,
@@ -24,14 +26,10 @@ const buildPlanView = (radar) => {
   const criteria = readiness.criteria || [];
   const prep = radar.prepSuggestion || {};
   return {
-    stageNumber: currentIndex + 1,
-    stageCount: stages.length,
+    positionText: position.positionText,
     stageTitle: radar.currentStage.stageTitle,
     stageGoal: radar.currentStage.goal,
-    steps: stages.map((stage, index) => ({
-      stageId: stage.stageId,
-      state: index < currentIndex ? "done" : index === currentIndex ? "current" : "next",
-    })),
+    steps: position.steps,
     stageOptions: stages.map((stage) => ({
       stageId: stage.stageId,
       displayLabel: `${stage.stageLabel} · ${stage.stageTitle}`,

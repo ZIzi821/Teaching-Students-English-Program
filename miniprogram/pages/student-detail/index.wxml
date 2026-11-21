@@ -78,7 +78,7 @@
       <view class="ui-group overview-group" wx:if="{{isTeacher && planSummary}}">
         <view class="ui-row" data-section="plan" bindtap="selectSection" hover-class="ui-pressed">
           <view class="ui-row-main">
-            <view class="overview-label">学习计划 · 第 {{planSummary.stageNumber}} / {{planSummary.stageCount}} 阶段</view>
+            <view class="overview-label">学习计划 · {{planSummary.positionText}}</view>
             <view class="ui-row-title">{{planSummary.stageTitle}}</view>
             <view class="ui-row-note">{{planSummary.remainingCount ? '还差 ' + planSummary.remainingCount + ' 项进入下一阶段' : '已满足进入下一阶段的条件'}}</view>
             <view class="ui-row-note">下节课建议：{{planSummary.nextLessonTitle}}</view>

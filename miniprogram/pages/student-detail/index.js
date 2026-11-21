@@ -1,3 +1,4 @@
+const { describeStagePosition } = require("../../utils/learningStage");
 const {
   LESSON_TEMPLATE_OPTIONS,
   inferLessonTemplateKey,
@@ -246,12 +247,10 @@ Page({
   },
 
   buildPlanSummary(radar) {
-    const stages = radar.stageOptions || [];
-    const stageIndex = Math.max(0, stages.findIndex((stage) => stage.stageId === radar.currentStage.stageId));
+    const position = describeStagePosition(radar.stageOptions, radar.currentStage.stageId);
     const criteria = (radar.stageReadiness && radar.stageReadiness.criteria) || [];
     return {
-      stageNumber: stageIndex + 1,
-      stageCount: stages.length,
+      positionText: position.positionText,
       stageTitle: radar.currentStage.stageTitle,
       remainingCount: criteria.filter((item) => !item.passed).length,
       nextLessonTitle: (radar.prepSuggestion && radar.prepSuggestion.title) || "按当前阶段目标继续",

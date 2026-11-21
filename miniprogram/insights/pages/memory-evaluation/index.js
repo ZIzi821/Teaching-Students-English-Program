@@ -1,5 +1,7 @@
+const { describeCalibrationStatus } = require("../../../utils/memoryCalibration");
 const { callCloud } = require("../../../utils/cloud");
 const LARGE_BIN_GAP_POINTS = 15;
+const MIN_BIN_SAMPLE_FOR_FLAG = 10;
 
 const describeFactor = (factor) => {
   const percent = Math.round((Number(factor) - 1) * 100);
@@ -184,17 +186,15 @@ Page({
     const firstDate = formatDate(source.firstObservedAtMs);
     const lastDate = formatDate(source.lastObservedAtMs);
     return Object.assign({}, source, {
-      status: source.calibration && source.calibration.canApply
-        ? { key: "needs_calibration", label: "需要校准", tone: "attention" }
-        : status.key === "needs_calibration"
-          ? { key: status.key, label: "继续观察", tone: "collecting" }
-          : status,
+      status: Object.assign({ key: status.key }, describeCalibrationStatus(Object.assign({}, source, { status }))),
       verdict: buildVerdict(source, status.key),
       calibrationView: buildCalibrationView(source, this.suggestionDismissed === true),
       activeBins: calibrationBins
         .filter((item) => item.hasSample)
         .map((item) => Object.assign({}, item, {
-          largeGap: Math.abs(Number(item.calibrationGapPoints || 0)) > LARGE_BIN_GAP_POINTS,
+          // 样本太少的分组偏差不可靠，不标“偏差大”。
+          largeGap: Number(item.sampleSize || 0) >= MIN_BIN_SAMPLE_FOR_FLAG
+            && Math.abs(Number(item.calibrationGapPoints || 0)) > LARGE_BIN_GAP_POINTS,
         })),
       hasSample: Number(source.sampleSize || 0) > 0,
       predictedDisplay: formatPercent(source.predictedRetentionPercent),

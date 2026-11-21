@@ -1,3 +1,4 @@
+const { describeCalibrationStatus } = require("../../utils/memoryCalibration");
 const { callCloud } = require("../../utils/cloud");
 const { createVocabularyAudioPlayer } = require("../../utils/vocabularyAudio");
 const { getFriendlyCloudErrorMessage } = require("../../utils/cloudError");
@@ -620,8 +621,9 @@ Page({
       data: { studentId: this.data.studentId },
     }).then((res) => {
       const result = res.result || {};
-      const status = result.success && result.evaluation && result.evaluation.status;
-      if (status && status.label) this.setData({ memoryEvaluationLabel: status.label });
+      if (result.success && result.evaluation) {
+        this.setData({ memoryEvaluationLabel: describeCalibrationStatus(result.evaluation).label });
+      }
     }).catch((err) => {
       console.error(err);
       this.memoryEvaluationRequested = false;
