@@ -136,7 +136,8 @@ Page({
     const deadlineTone = submittedLate ? "late" : String(lesson.homeworkDueStatus || "none");
     let recordingLabel = lesson.recordingTaskType === "ket_mock"
       ? "KET Part 1 + Part 2 模拟"
-      : lesson.recordingTaskType === "ket_official" ? "KET 官方样题录音" : "需要提交录音";
+      : lesson.recordingTaskType === "ket_official" ? "KET 官方样题录音"
+        : lesson.recordingTaskType === "prompt_reading" ? "看提示逐句朗读" : "需要提交录音";
     if (hasSubmission) {
       recordingLabel = lesson.recordingTaskType === "ket_mock"
         ? "KET 回答已提交"
@@ -155,7 +156,8 @@ Page({
       taskPreview: String(lesson.homeworkTask || "").trim()
         || (lesson.recordingTaskType === "ket_mock"
           ? "完成本次 KET 口语全流程模拟"
-          : lesson.recordingTaskType === "ket_official" ? "完成本次 KET 口语录音" : "完成本节课录音任务"),
+          : lesson.recordingTaskType === "ket_official" ? "完成本次 KET 口语录音"
+            : lesson.recordingTaskType === "prompt_reading" ? "看提示逐句朗读并提交" : "完成本节课录音任务"),
       recordingLabel,
       taskActionLabel: completed
         ? "查看记录 →"

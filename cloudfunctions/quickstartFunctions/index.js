@@ -15,6 +15,11 @@ const learningRadar = require("./learningRadar");
 const { createKetMockService } = require("./ketMockService");
 const followReading = require("./followReading");
 const { createFollowReadingService } = require("./followReadingService");
+const promptReading = require("./promptReading");
+const { createPromptReadingService } = require("./promptReadingService");
+const RECORDING_TASK_TYPES = ["follow_reading", "prompt_reading", "ket_official", "ket_mock"];
+// 这些类型必须在专门页面按流程提交，不能走单条录音接口。
+const FLOW_RECORDING_TASK_TYPES = ["ket_mock", "follow_reading", "prompt_reading"];
 const { createWeeklyScheduleService } = require("./scheduleService");
 const scheduleWorkflow = require("./schedule");
 const { createMistakeExportService } = require("./mistakeExportService");
@@ -4004,13 +4009,18 @@ const buildPreviousLessonReference = (lesson, student = {}) => {
     nextReview: String(lesson.nextReview || "").trim(),
     homeworkTask: String(lesson.homeworkTask || "").trim(),
     recordingTaskEnabled: lesson.recordingTaskEnabled === true,
-    recordingTaskType: ["follow_reading", "ket_official", "ket_mock"].includes(lesson.recordingTaskType)
+    recordingTaskType: RECORDING_TASK_TYPES.includes(lesson.recordingTaskType)
       ? lesson.recordingTaskType
       : "manual",
     recordingPrompt: String(lesson.recordingPrompt || "").trim(),
     recordingRepeatCount: normalizeRecordingRepeatCount(lesson.recordingRepeatCount),
     followReadingContent: lesson.recordingTaskType === "follow_reading"
       ? followReading.normalizeTask(lesson).followReadingItems.map((item) => item.text).join("\n")
+      : "",
+    promptReadingContent: lesson.recordingTaskType === "prompt_reading"
+      ? promptReading.normalizeTask(lesson).promptReadingItems
+        .map((item) => (item.hint ? `${item.text}（提示：${item.hint}）` : item.text))
+        .join("\n")
       : "",
     homeworkDueDays: Number.isInteger(Number(lesson.homeworkDueDays))
       ? Number(lesson.homeworkDueDays)
@@ -4029,6 +4039,7 @@ const buildPreviousLessonReference = (lesson, student = {}) => {
     || reference.homeworkTask
     || reference.recordingPrompt
     || reference.followReadingContent
+    || reference.promptReadingContent
   );
   return reference;
 };
@@ -4241,10 +4252,11 @@ const normalizeLessonWorkspacePayload = (data = {}, options = {}) => {
   const recordingTaskEnabled = lessonTemplateKey === "vocabulary_coaching"
     ? false
     : data.recordingTaskEnabled === true;
-  const requestedTaskType = ["follow_reading", "ket_official", "ket_mock"].includes(data.recordingTaskType)
+  const requestedTaskType = RECORDING_TASK_TYPES.includes(data.recordingTaskType)
     ? data.recordingTaskType
     : "manual";
   const followReadingTask = followReading.normalizeTask(data);
+  const promptReadingTask = promptReading.normalizeTask(data);
   const officialTask = lessonTemplateKey === "molly_oral_ket" && recordingTaskEnabled
     ? findOfficialKetSpeakingTask(String(data.ketSpeakingTaskId || "").trim())
     : null;
@@ -4257,9 +4269,14 @@ const normalizeLessonWorkspacePayload = (data = {}, options = {}) => {
       ? "ket_mock"
       : requestedTaskType === "follow_reading" && recordingTaskEnabled
         ? "follow_reading"
-        : "manual";
+        : requestedTaskType === "prompt_reading" && recordingTaskEnabled
+          ? "prompt_reading"
+          : "manual";
   if (recordingTaskType === "follow_reading" && !followReadingTask.followReadingItems.length) {
     throw createError("FOLLOW_READING_EMPTY", "请至少填写 1 条跟读内容，每行填写一个单词或句子");
+  }
+  if (recordingTaskType === "prompt_reading" && !promptReadingTask.promptReadingItems.length) {
+    throw createError("PROMPT_READING_EMPTY", "请至少填写 1 句要朗读的句子");
   }
   return {
     title: normalizeLessonText(data.title, 100),
@@ -4286,12 +4303,12 @@ const normalizeLessonWorkspacePayload = (data = {}, options = {}) => {
       : recordingTaskType === "ket_mock"
         ? `${mockSet.title}：按完整考试流程完成 Part 1 与 Part 2。`
         : normalizeLessonText(data.recordingPrompt, 2000),
-    recordingRepeatCount: ["follow_reading", "ket_official", "ket_mock"].includes(recordingTaskType)
+    recordingRepeatCount: RECORDING_TASK_TYPES.includes(recordingTaskType)
       ? 1
       : normalizeRecordingRepeatCount(data.recordingRepeatCount),
     recordingPreparationSeconds: recordingTaskType === "ket_official"
       ? officialTask.preparationSeconds
-      : recordingTaskType === "ket_mock" ? 0
+      : ["ket_mock", "prompt_reading"].includes(recordingTaskType) ? 0
       : normalizeRecordingPreparationSeconds(data.recordingPreparationSeconds),
     recordingSuggestedSeconds: recordingTaskType === "ket_official"
       ? officialTask.suggestedRecordingSeconds
@@ -4307,6 +4324,15 @@ const normalizeLessonWorkspacePayload = (data = {}, options = {}) => {
       : 8,
     followReadingItems: recordingTaskType === "follow_reading"
       ? followReadingTask.followReadingItems
+      : [],
+    promptReadingTextMode: recordingTaskType === "prompt_reading"
+      ? promptReadingTask.promptReadingTextMode
+      : promptReading.DEFAULT_TEXT_MODE,
+    promptReadingResponseSeconds: recordingTaskType === "prompt_reading"
+      ? promptReadingTask.promptReadingResponseSeconds
+      : promptReading.DEFAULT_RESPONSE_SECONDS,
+    promptReadingItems: recordingTaskType === "prompt_reading"
+      ? promptReadingTask.promptReadingItems
       : [],
     ketSpeakingTaskId: recordingTaskType === "ket_official" ? officialTask.id : "",
     ketSpeakingTask: recordingTaskType === "ket_official" ? officialTask : null,
@@ -4365,9 +4391,13 @@ const getHomeworkTaskSignature = (lesson = {}) => JSON.stringify({
   recordingPrompt: String(lesson.recordingPrompt || "").trim(),
   recordingRepeatCount: normalizeRecordingRepeatCount(lesson.recordingRepeatCount),
   recordingPreparationSeconds: normalizeRecordingPreparationSeconds(lesson.recordingPreparationSeconds),
-  recordingTaskType: ["follow_reading", "ket_official", "ket_mock"].includes(lesson.recordingTaskType)
+  recordingTaskType: RECORDING_TASK_TYPES.includes(lesson.recordingTaskType)
     ? lesson.recordingTaskType
     : "manual",
+  // 只在看提示朗读任务里出现，旧课程的签名保持不变。
+  ...(lesson.recordingTaskType === "prompt_reading"
+    ? { promptReading: promptReading.getSignatureFields(lesson) }
+    : {}),
   followReadingMode: lesson.followReadingMode || "automatic",
   followReadingGapSeconds: Number(lesson.followReadingGapSeconds) || 2,
   followReadingResponseSeconds: Number(lesson.followReadingResponseSeconds) || 8,
@@ -4515,8 +4545,12 @@ const addLesson = async (event) => {
       lessonPayload.homeworkTask,
       lessonPayload.recordingPrompt,
       ...lessonPayload.followReadingItems.map((item) => item.text),
+      ...lessonPayload.promptReadingItems.map((item) => [item.text, item.hint]),
       ...lessonPayload.learningObservations.map((item) => [item.content, item.note]),
     ],
+    imageFileIds: promptReading.collectImageFileIds(lessonPayload.promptReadingItems),
+    allowImageReview: true,
+    contextLabel: "prompt-reading-image",
   });
   await ensureStudentLessonCountSnapshot(lessonPayload.studentId);
   const requestId = String(data.requestId || "").trim().slice(0, 100);
@@ -4596,6 +4630,7 @@ const updateLessonWorkspace = async (event) => {
     currentLessonRes.data
   ));
   if (!workspace.title) throw createError("INVALID_LESSON_TITLE", "请填写课程名称");
+  const previousPromptImageIds = promptReading.collectImageFileIds(currentLessonRes.data.promptReadingItems);
   // 上课日期可在编辑时修正（例如补录时选错日期）；不传时保持原日期。
   if (Object.prototype.hasOwnProperty.call(data, "lessonDate")) {
     const lessonDate = String(data.lessonDate || "").trim();
@@ -4624,8 +4659,14 @@ const updateLessonWorkspace = async (event) => {
       workspace.homeworkTask,
       workspace.recordingPrompt,
       ...workspace.followReadingItems.map((item) => item.text),
+      ...workspace.promptReadingItems.map((item) => [item.text, item.hint]),
       ...workspace.learningObservations.map((item) => [item.content, item.note]),
     ],
+    // 只检查本次新加入的提示图片，已保存过的图片不重复检查。
+    imageFileIds: promptReading.collectImageFileIds(workspace.promptReadingItems)
+      .filter((fileID) => !previousPromptImageIds.includes(fileID)),
+    allowImageReview: true,
+    contextLabel: "prompt-reading-image",
   });
   const requestedInstitutionCourse = institutionCourseProvided
     ? workspace.institutionCourse
@@ -4675,7 +4716,10 @@ const updateLessonWorkspace = async (event) => {
       ).homeworkSubmittedLate;
     }
     await lessonRef.update({ data: updateData });
+    const keptPromptImageIds = promptReading.collectImageFileIds(workspace.promptReadingItems);
     return {
+      removedPromptImageIds: promptReading.collectImageFileIds(lesson.promptReadingItems)
+        .filter((fileID) => !keptPromptImageIds.includes(fileID)),
       taskChanged,
       homeworkTaskVersion: updateData.homeworkTaskVersion || lesson.homeworkTaskVersion || 1,
       studentId: lesson.studentId,
@@ -4687,6 +4731,9 @@ const updateLessonWorkspace = async (event) => {
         ),
     };
   });
+  const { removedPromptImageIds } = saved;
+  delete saved.removedPromptImageIds;
+  if (removedPromptImageIds.length) await deleteUnsafeFiles(removedPromptImageIds);
   let completedLessonCount;
   if (saved.progressCountingChanged) {
     try {
@@ -4833,7 +4880,9 @@ const deleteLesson = async (event) => {
   await removeDocumentsById("papers", papers);
   await removeDocumentsById("lessonSubmissions", lessonSubmissions);
   await db.collection("lessons").doc(lessonId).remove();
-  await deleteUnsafeFiles(paperFileIDs.concat(submissionFileIDs));
+  await deleteUnsafeFiles(paperFileIDs
+    .concat(submissionFileIDs)
+    .concat(promptReading.collectImageFileIds(lesson.promptReadingItems)));
   await db.collection("systemLocks").doc(deleteLockId).update({
     data: {
       status: "completed",
@@ -4975,6 +5024,11 @@ const getLessonDetail = async (event) => {
       if (attemptDiff) return attemptDiff;
       return Number(a.followReadingItemOrder || 0) - Number(b.followReadingItemOrder || 0);
     }
+    if (a.recordingMode === "prompt_reading" && b.recordingMode === "prompt_reading") {
+      const attemptDiff = Number(b.attemptNo || 0) - Number(a.attemptNo || 0);
+      if (attemptDiff) return attemptDiff;
+      return Number(a.promptReadingItemOrder || 0) - Number(b.promptReadingItemOrder || 0);
+    }
     return getCreatedTime(b) - getCreatedTime(a);
   });
   const submissionsWithTiming = submissions.map((item) => Object.assign({}, item, {
@@ -4990,7 +5044,10 @@ const getLessonDetail = async (event) => {
   const followReadingAudio = lesson.recordingTaskType === "follow_reading"
     ? await followReadingService.getLessonSummary(lesson)
     : null;
-  const lessonForResponse = courseWorkflow.withApplicableLessonDuration(lesson, student);
+  const lessonForResponse = await promptReadingService.decorateLessonForViewer(
+    courseWorkflow.withApplicableLessonDuration(lesson, student),
+    identity.role === "teacher" && data.mode !== "teacherPreview"
+  );
   const lessonAccountingMode = courseWorkflow.getLessonAccountingMode(student);
   return {
     success: true,
@@ -5385,6 +5442,9 @@ const submitLessonRecording = async (event) => {
   if (lesson.recordingTaskType === "follow_reading") {
     throw createError("FOLLOW_READING_REQUIRES_FLOW", "这项任务需要从跟读练习页按顺序完成");
   }
+  if (lesson.recordingTaskType === "prompt_reading") {
+    throw createError("PROMPT_READING_REQUIRES_FLOW", "这项任务需要从看提示朗读页逐句完成");
+  }
   await createOneCollection("lessonSubmissions");
   const submittedAtMs = Date.now();
   const submissionId = `submission_${submittedAtMs}_${crypto.randomBytes(8).toString("hex")}`;
@@ -5397,7 +5457,7 @@ const submitLessonRecording = async (event) => {
       || currentLesson.deleting === true
       || currentLesson.studentId !== identity.student._id
       || currentLesson.recordingTaskEnabled !== true
-      || ["ket_mock", "follow_reading"].includes(currentLesson.recordingTaskType)
+      || FLOW_RECORDING_TASK_TYPES.includes(currentLesson.recordingTaskType)
     ) throw createError("RECORDING_NOT_ASSIGNED", "录音任务已经变化，请刷新后重新录制");
     const submission = {
       studentId: identity.student._id,
@@ -5538,6 +5598,46 @@ const reviewLessonRecording = async (event) => {
     teacherFeedbackTags: feedback.tags,
     teacherFeedbackNote: feedback.note,
   };
+};
+
+// 老师逐句听完后，把同一轮里仍“待检查”的句子一次标为“朗读正确”；已经给过反馈的句子保持不变。
+const reviewLessonRecordingBatch = async (event) => {
+  await ensureTeacher();
+  const data = event.data || {};
+  const lessonId = String(data.lessonId || "").trim();
+  const batchId = String(data.batchId || "").trim();
+  if (!lessonId || !batchId) throw createError("INVALID_RECORDING", "录音信息不完整，请刷新后重试");
+  await createOneCollection("lessonSubmissions");
+  const pending = (await loadAllLessonDocuments("lessonSubmissions", lessonId))
+    .filter((item) => item.batchId === batchId && item.status === "待检查")
+    .slice(0, 40);
+  if (!pending.length) return { success: true, lessonId, batchId, reviewedCount: 0 };
+  const reviewedAtMs = Date.now();
+  const reviewedCount = await runTransaction(async (transaction) => {
+    const lesson = await getOptionalTransactionDocument(transaction.collection("lessons").doc(lessonId));
+    if (!lesson || lesson.deleting === true) throw createError("LESSON_NOT_FOUND", "课程不存在或已删除");
+    let count = 0;
+    for (let index = 0; index < pending.length; index += 1) {
+      const ref = transaction.collection("lessonSubmissions").doc(pending[index]._id);
+      const current = await getOptionalTransactionDocument(ref);
+      if (!current || current.status !== "待检查" || current.lessonId !== lessonId) continue;
+      await ref.update({
+        data: {
+          status: "朗读正确",
+          teacherFeedback: "",
+          teacherFeedbackTags: [],
+          teacherFeedbackNote: "",
+          teacherFeedbackVersion: 2,
+          reviewedAt: db.serverDate(),
+          reviewedAtMs,
+        },
+      });
+      count += 1;
+    }
+    return count;
+  });
+  await syncLessonSubmissionTimingSafely(lessonId);
+  return { success: true, lessonId, batchId, reviewedCount };
 };
 
 const deleteLessonRecording = async (event) => {
@@ -6196,6 +6296,19 @@ const followReadingService = createFollowReadingService({
   getOptionalTransactionDocument,
 });
 
+const promptReadingService = createPromptReadingService({
+  db,
+  cloud,
+  courseWorkflow,
+  createError,
+  createOneCollection,
+  ensureEnglishCourseAccess,
+  ensureStudentAccess,
+  getIdentity,
+  getOptionalTransactionDocument,
+  runTransaction,
+});
+
 const weeklyScheduleService = createWeeklyScheduleService({
   db,
   createError,
@@ -6413,6 +6526,12 @@ exports.main = async (event) => {
         return await organizeLessonRecordingFiles(event);
       case "reviewLessonRecording":
         return await reviewLessonRecording(event);
+      case "reviewLessonRecordingBatch":
+        return await reviewLessonRecordingBatch(event);
+      case "getPromptReadingPractice":
+        return await promptReadingService.getPractice(event);
+      case "submitPromptReadingBatch":
+        return await promptReadingService.submitBatch(event);
       case "deleteLessonRecording":
         return await deleteLessonRecording(event);
       case "reviewLessonHomeworkCompletion":

@@ -3,7 +3,11 @@ const {
   findTemplate,
   inferLessonTemplateKey,
 } = require("../../utils/lessonTemplates");
-const { getSafeRecordingTaskType } = require("../../utils/lessonTaskOptions");
+const {
+  getPromptReadingFormError,
+  getSafeRecordingTaskType,
+  toPromptReadingPayload,
+} = require("../../utils/lessonTaskOptions");
 const { buildNextLessonTitleSuggestion } = require("../../utils/lessonTitle");
 const { usesLessonDurationMinutes } = require("../../utils/lessonDuration");
 const { callCloud } = require("../../utils/cloud");
@@ -80,6 +84,9 @@ Page({
       followReadingGapSeconds: 2,
       followReadingResponseSeconds: 8,
       followReadingContent: "",
+      promptReadingItems: [],
+      promptReadingTextMode: "reveal",
+      promptReadingResponseSeconds: 20,
       ketSpeakingTaskId: "",
       ketMockSetId: "",
       lessonFocusType: "",
@@ -422,6 +429,13 @@ Page({
         return;
       }
     }
+    if (form.recordingTaskEnabled && form.recordingTaskType === "prompt_reading") {
+      const promptError = getPromptReadingFormError(form.promptReadingItems);
+      if (promptError) {
+        wx.showToast({ title: promptError, icon: "none" });
+        return;
+      }
+    }
 
     if (!this.lessonRequestId) {
       this.lessonRequestId = `lesson-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -455,6 +469,9 @@ Page({
       followReadingGapSeconds: form.followReadingGapSeconds,
       followReadingResponseSeconds: form.followReadingResponseSeconds,
       followReadingContent: form.followReadingContent,
+      promptReadingItems: toPromptReadingPayload(form.promptReadingItems),
+      promptReadingTextMode: form.promptReadingTextMode,
+      promptReadingResponseSeconds: form.promptReadingResponseSeconds,
       ketSpeakingTaskId: form.ketSpeakingTaskId,
       ketMockSetId: form.ketMockSetId,
       lessonFocusType: form.lessonFocusType,

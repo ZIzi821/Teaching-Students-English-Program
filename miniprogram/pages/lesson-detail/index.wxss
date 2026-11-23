@@ -1349,3 +1349,54 @@
   background: var(--accent);
   font-weight: 600;
 }
+
+/* 看提示朗读 */
+.prompt-task-item .prompt-task-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.prompt-task-hint {
+  margin-top: 4rpx;
+  color: var(--ink-3);
+  font-size: 26rpx;
+}
+
+.prompt-task-image {
+  flex: 0 0 96rpx;
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 12rpx;
+  background: var(--surface-2);
+}
+
+.submission-hint {
+  margin-top: 4rpx;
+  color: var(--ink-3);
+  font-size: 24rpx;
+  word-break: break-word;
+}
+
+.prompt-round-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-top: 24rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 16rpx;
+  background: var(--surface-2);
+}
+
+.prompt-round-title {
+  color: var(--ink);
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.prompt-round-action {
+  color: var(--accent);
+  font-size: 26rpx;
+  font-weight: 500;
+}

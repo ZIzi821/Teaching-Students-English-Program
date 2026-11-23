@@ -83,6 +83,7 @@
     </picker>
     <view class="hint" wx:if="{{form.lessonTemplateKey === 'molly_oral_ket'}}">独立朗读由学生直接开始；跟读会先播放你的逐条录音。Molly 还可选择 KET 单题或全流程模拟。</view>
     <view class="hint" wx:else>独立朗读由学生直接录音；跟读先播放老师的逐条示范，再自动打开麦克风。</view>
+    <view class="hint" wx:if="{{form.recordingTaskType === 'prompt_reading'}}">看提示朗读：学生逐句看提示录音，可以回放、重录，全部录完后一起提交。</view>
   </view>
 
   <view class="field" wx:if="{{form.recordingTaskType === 'ket_official'}}">
@@ -118,8 +119,8 @@
   </view>
 
   <view class="field">
-    <view class="label">{{form.recordingTaskType === 'follow_reading' ? '补充要求（可不填）' : '录音要求'}}</view>
-    <textarea class="textarea {{form.recordingTaskType === 'ket_official' || form.recordingTaskType === 'ket_mock' ? 'textarea-locked' : ''}}" maxlength="2000" disabled="{{form.recordingTaskType === 'ket_official' || form.recordingTaskType === 'ket_mock'}}" placeholder="{{form.recordingTaskType === 'follow_reading' ? '例如：先听完整，再按相同语速读一遍' : recordingPlaceholder}}" value="{{form.recordingPrompt}}" data-field="recordingPrompt" bindinput="onInput"></textarea>
+    <view class="label">{{form.recordingTaskType === 'follow_reading' || form.recordingTaskType === 'prompt_reading' ? '补充要求（可不填）' : '录音要求'}}</view>
+    <textarea class="textarea {{form.recordingTaskType === 'ket_official' || form.recordingTaskType === 'ket_mock' ? 'textarea-locked' : ''}}" maxlength="2000" disabled="{{form.recordingTaskType === 'ket_official' || form.recordingTaskType === 'ket_mock'}}" placeholder="{{form.recordingTaskType === 'follow_reading' ? '例如：先听完整，再按相同语速读一遍' : form.recordingTaskType === 'prompt_reading' ? '例如：每句读完整，声音大一点' : recordingPlaceholder}}" value="{{form.recordingPrompt}}" data-field="recordingPrompt" bindinput="onInput"></textarea>
   </view>
 
   <block wx:if="{{form.recordingTaskType === 'follow_reading'}}">
@@ -146,6 +147,53 @@
         <view class="label">每条最长录音</view>
         <picker mode="selector" range="{{followReadingResponseOptions}}" value="{{followReadingResponseIndex}}" bindchange="onFollowReadingResponseChange">
           <view class="picker-value">{{form.followReadingResponseSeconds}} 秒</view>
+        </picker>
+      </view>
+    </view>
+  </block>
+
+  <block wx:if="{{form.recordingTaskType === 'prompt_reading'}}">
+    <view class="field">
+      <view class="prompt-head">
+        <view class="label prompt-head-label">朗读句子（{{form.promptReadingItems.length || 0}} / {{promptMaxItems}}）</view>
+        <view class="prompt-link" bindtap="togglePromptBulkPaste">{{showPromptBulkPaste ? '收起批量粘贴' : '批量粘贴'}}</view>
+      </view>
+      <view class="prompt-bulk" wx:if="{{showPromptBulkPaste}}">
+        <textarea class="textarea textarea-tall" maxlength="8000" placeholder="每行一句，提示写在 | 后面，例如：My name is Jiawen. | 名字" value="{{promptBulkText}}" bindinput="onPromptBulkInput"></textarea>
+        <view class="prompt-bulk-action" bindtap="applyPromptBulkPaste">加入句子卡片</view>
+      </view>
+      <view class="prompt-card" wx:for="{{form.promptReadingItems}}" wx:key="key">
+        <view class="prompt-card-head">
+          <view class="prompt-no">第 {{index + 1}} 句</view>
+          <view class="prompt-card-tools">
+            <view class="prompt-tool {{index === 0 ? 'prompt-tool-off' : ''}}" data-index="{{index}}" data-direction="up" bindtap="movePromptItem">上移</view>
+            <view class="prompt-tool {{index === form.promptReadingItems.length - 1 ? 'prompt-tool-off' : ''}}" data-index="{{index}}" data-direction="down" bindtap="movePromptItem">下移</view>
+            <view class="prompt-tool prompt-tool-danger" data-index="{{index}}" bindtap="removePromptItem">删除</view>
+          </view>
+        </view>
+        <textarea class="textarea prompt-text" auto-height maxlength="300" placeholder="要读的句子，例如：My name is Jiawen." value="{{item.text}}" data-index="{{index}}" data-field="text" bindinput="onPromptItemInput"></textarea>
+        <input class="input prompt-hint" maxlength="200" placeholder="提示（可不填）：中文意思或提示词" value="{{item.hint}}" data-index="{{index}}" data-field="hint" bindinput="onPromptItemInput" />
+        <view class="prompt-image-row">
+          <image wx:if="{{item.imageUrl}}" class="prompt-image" src="{{item.imageUrl}}" mode="aspectFill" data-url="{{item.imageUrl}}" bindtap="previewPromptImage"></image>
+          <view wx:elif="{{item.imageFileId}}" class="prompt-image prompt-image-empty">已有图片</view>
+          <view class="prompt-tool" data-index="{{index}}" bindtap="choosePromptImage">{{uploadingPromptKey && uploadingPromptKey === item.key ? '上传中…' : item.imageFileId ? '更换图片' : '+ 提示图片'}}</view>
+          <view class="prompt-tool prompt-tool-danger" wx:if="{{item.imageFileId}}" data-index="{{index}}" bindtap="removePromptImage">移除图片</view>
+        </view>
+      </view>
+      <view class="prompt-add" wx:if="{{(form.promptReadingItems.length || 0) < promptMaxItems}}" bindtap="addPromptItem">+ 添加一句</view>
+      <view class="hint">只改提示或图片，学生的完成状态保持不变；改句子会让学生重新完成。</view>
+    </view>
+    <view class="option-grid">
+      <view class="option option-wide">
+        <view class="label">学生怎么看原句</view>
+        <picker mode="selector" range="{{promptTextModeOptions}}" range-key="label" value="{{promptTextModeIndex}}" bindchange="onPromptTextModeChange">
+          <view class="picker-value">{{promptTextModeOptions[promptTextModeIndex].label}}</view>
+        </picker>
+      </view>
+      <view class="option option-wide">
+        <view class="label">每句最长录音</view>
+        <picker mode="selector" range="{{promptResponseOptions}}" value="{{promptResponseIndex}}" bindchange="onPromptResponseChange">
+          <view class="picker-value">{{form.promptReadingResponseSeconds}} 秒</view>
         </picker>
       </view>
     </view>

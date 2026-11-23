@@ -5,10 +5,16 @@ const {
   FOLLOW_READING_MODE_OPTIONS,
   FOLLOW_READING_RESPONSE_OPTIONS,
   HOMEWORK_DUE_OPTIONS,
+  PROMPT_READING_MAX_ITEMS,
+  PROMPT_READING_RESPONSE_OPTIONS,
+  PROMPT_READING_TEXT_MODE_OPTIONS,
   RECORDING_PREPARATION_OPTIONS,
   RECORDING_REPEAT_OPTIONS,
+  createPromptReadingItem,
   getRecordingTaskTypeOptions,
+  parsePromptReadingLines,
 } = require("../../utils/lessonTaskOptions");
+const { uploadPromptReadingImage } = require("../../utils/promptReadingImage");
 
 const indexOrZero = (index) => Math.max(0, index);
 
@@ -55,6 +61,14 @@ Component({
     followReadingResponseIndex: 0,
     recordingRepeatIndex: 0,
     recordingPreparationIndex: 0,
+    promptTextModeOptions: PROMPT_READING_TEXT_MODE_OPTIONS,
+    promptResponseOptions: PROMPT_READING_RESPONSE_OPTIONS,
+    promptMaxItems: PROMPT_READING_MAX_ITEMS,
+    promptTextModeIndex: 0,
+    promptResponseIndex: 2,
+    showPromptBulkPaste: false,
+    promptBulkText: "",
+    uploadingPromptKey: "",
   },
 
   observers: {
@@ -76,6 +90,8 @@ Component({
         followReadingResponseIndex: indexOrZero(FOLLOW_READING_RESPONSE_OPTIONS.indexOf(Number(source.followReadingResponseSeconds))),
         recordingRepeatIndex: indexOrZero(RECORDING_REPEAT_OPTIONS.indexOf(Number(source.recordingRepeatCount))),
         recordingPreparationIndex: indexOrZero(RECORDING_PREPARATION_OPTIONS.indexOf(Number(source.recordingPreparationSeconds))),
+        promptTextModeIndex: indexOrZero(PROMPT_READING_TEXT_MODE_OPTIONS.findIndex((item) => item.value === source.promptReadingTextMode)),
+        promptResponseIndex: Math.max(0, PROMPT_READING_RESPONSE_OPTIONS.indexOf(Number(source.promptReadingResponseSeconds))),
       });
     },
   },
@@ -109,7 +125,12 @@ Component({
       } else if (option.value === "ket_mock") {
         this.emit(Object.assign({ recordingTaskType: option.value }, this.buildKetMockSetUpdates(this.data.ketMockSetIndex)), true);
       } else {
-        this.emit({ recordingTaskType: option.value, ketSpeakingTaskId: "", ketMockSetId: "" }, true);
+        const updates = { recordingTaskType: option.value, ketSpeakingTaskId: "", ketMockSetId: "" };
+        // 第一次切到看提示朗读时给一张空白句子卡，老师可以直接填写。
+        if (option.value === "prompt_reading" && !this.getPromptItems().length) {
+          updates.promptReadingItems = [createPromptReadingItem()];
+        }
+        this.emit(updates, true);
       }
     },
 
@@ -169,6 +190,123 @@ Component({
 
     onFollowReadingResponseChange(e) {
       this.emit({ followReadingResponseSeconds: FOLLOW_READING_RESPONSE_OPTIONS[Number(e.detail.value)] });
+    },
+
+    getPromptItems() {
+      const items = this.data.form && this.data.form.promptReadingItems;
+      return Array.isArray(items) ? items : [];
+    },
+
+    onPromptTextModeChange(e) {
+      const option = PROMPT_READING_TEXT_MODE_OPTIONS[Number(e.detail.value)] || PROMPT_READING_TEXT_MODE_OPTIONS[0];
+      this.emit({ promptReadingTextMode: option.value });
+    },
+
+    onPromptResponseChange(e) {
+      this.emit({ promptReadingResponseSeconds: PROMPT_READING_RESPONSE_OPTIONS[Number(e.detail.value)] });
+    },
+
+    onPromptItemInput(e) {
+      const index = Number(e.currentTarget.dataset.index);
+      const field = e.currentTarget.dataset.field === "hint" ? "hint" : "text";
+      if (!this.getPromptItems()[index]) return;
+      this.emit({ [`promptReadingItems[${index}].${field}`]: e.detail.value });
+    },
+
+    addPromptItem() {
+      const items = this.getPromptItems();
+      if (items.length >= PROMPT_READING_MAX_ITEMS) {
+        wx.showToast({ title: `最多 ${PROMPT_READING_MAX_ITEMS} 句`, icon: "none" });
+        return;
+      }
+      this.emit({ promptReadingItems: items.concat(createPromptReadingItem()) });
+    },
+
+    removePromptItem(e) {
+      const index = Number(e.currentTarget.dataset.index);
+      const items = this.getPromptItems().slice();
+      if (!items[index]) return;
+      items.splice(index, 1);
+      this.emit({ promptReadingItems: items });
+    },
+
+    movePromptItem(e) {
+      const index = Number(e.currentTarget.dataset.index);
+      const target = index + (e.currentTarget.dataset.direction === "up" ? -1 : 1);
+      const items = this.getPromptItems().slice();
+      if (!items[index] || !items[target]) return;
+      const moved = items[index];
+      items[index] = items[target];
+      items[target] = moved;
+      this.emit({ promptReadingItems: items });
+    },
+
+    togglePromptBulkPaste() {
+      this.setData({ showPromptBulkPaste: !this.data.showPromptBulkPaste });
+    },
+
+    onPromptBulkInput(e) {
+      this.setData({ promptBulkText: e.detail.value });
+    },
+
+    applyPromptBulkPaste() {
+      const parsed = parsePromptReadingLines(this.data.promptBulkText);
+      if (!parsed.length) {
+        wx.showToast({ title: "每行写一句，提示放在 | 后面", icon: "none" });
+        return;
+      }
+      // 只有空白卡片时直接替换，否则接在已有句子后面。
+      const existing = this.getPromptItems().filter((item) => String(item.text || "").trim() || item.imageFileId);
+      const room = PROMPT_READING_MAX_ITEMS - existing.length;
+      if (room <= 0) {
+        wx.showToast({ title: `已经有 ${PROMPT_READING_MAX_ITEMS} 句`, icon: "none" });
+        return;
+      }
+      const added = parsed.slice(0, room).map((item) => createPromptReadingItem(item));
+      this.emit({ promptReadingItems: existing.concat(added) });
+      this.setData({ showPromptBulkPaste: false, promptBulkText: "" });
+      wx.showToast({
+        title: parsed.length > room ? `已加入 ${added.length} 句，超出部分未加入` : `已加入 ${added.length} 句`,
+        icon: "none",
+      });
+    },
+
+    choosePromptImage(e) {
+      const index = Number(e.currentTarget.dataset.index);
+      const item = this.getPromptItems()[index];
+      if (!item || this.data.uploadingPromptKey) return;
+      this.setData({ uploadingPromptKey: item.key || String(index) });
+      uploadPromptReadingImage().then((image) => {
+        if (!image) return;
+        const current = this.getPromptItems();
+        const currentIndex = current.findIndex((candidate) => candidate === item || (item.key && candidate.key === item.key));
+        if (currentIndex < 0) return;
+        this.emit({
+          [`promptReadingItems[${currentIndex}].imageFileId`]: image.fileID,
+          [`promptReadingItems[${currentIndex}].imageCloudPath`]: image.cloudPath,
+          [`promptReadingItems[${currentIndex}].imageUrl`]: image.localPath,
+        });
+      }).catch((error) => {
+        console.error(error);
+        wx.showToast({ title: "图片上传失败，请重试", icon: "none" });
+      }).finally(() => {
+        this.setData({ uploadingPromptKey: "" });
+      });
+    },
+
+    removePromptImage(e) {
+      const index = Number(e.currentTarget.dataset.index);
+      if (!this.getPromptItems()[index]) return;
+      this.emit({
+        [`promptReadingItems[${index}].imageFileId`]: "",
+        [`promptReadingItems[${index}].imageCloudPath`]: "",
+        [`promptReadingItems[${index}].imageUrl`]: "",
+      });
+    },
+
+    previewPromptImage(e) {
+      const url = String(e.currentTarget.dataset.url || "");
+      if (url) wx.previewImage({ urls: [url], current: url });
     },
   },
 });

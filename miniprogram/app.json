@@ -53,7 +53,8 @@
       "root": "follow-reading",
       "pages": [
         "pages/audio-manager/index",
-        "pages/practice/index"
+        "pages/practice/index",
+        "pages/prompt-reading/index"
       ]
     },
     {

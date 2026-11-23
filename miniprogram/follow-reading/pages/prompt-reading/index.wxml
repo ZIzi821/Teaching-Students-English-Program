@@ -1,0 +1,128 @@
+<view class="page prompt-page">
+  <teacher-preview-banner wx:if="{{isTeacherPreview}}"></teacher-preview-banner>
+
+  <view class="card center-card" wx:if="{{state === 'loading'}}">
+    <view class="loading-ring"></view>
+    <view class="state-title">正在读取朗读任务…</view>
+  </view>
+
+  <view class="card center-card" wx:elif="{{state === 'error'}}">
+    <view class="error-mark">!</view>
+    <view class="state-title">请重新加载朗读任务</view>
+    <view class="state-copy">{{message}}</view>
+    <view class="primary-btn wide-action" bindtap="loadPractice">重新加载</view>
+  </view>
+
+  <block wx:elif="{{state === 'intro'}}">
+    <view class="hero">
+      <view class="eyebrow">看提示 · 朗读 · 回放</view>
+      <view class="hero-title">{{planMode === 'retake' ? '补录老师标记的句子' : '一句一句读'}}</view>
+      <view class="hero-subtitle">{{lesson.title}}<text wx:if="{{lesson.lessonNo}}"> · 第 {{lesson.lessonNo}} 节</text></view>
+    </view>
+    <view class="card intro-card">
+      <view class="intro-title">{{planMode === 'retake' ? '这次需要重录 ' + totalCount + ' 句' : '本次共 ' + totalCount + ' 句'}}</view>
+      <view class="rule-row"><text>1</text><view>{{textMode === 'hide' ? '看提示，自己说出完整的句子。' : textMode === 'reveal' ? '先看提示自己想；想不出来可以点“看原句”。' : '看着句子和提示读出来。'}}</view></view>
+      <view class="rule-row"><text>2</text><view>点“开始朗读”录音，每句最长 {{responseSeconds}} 秒，读完点“读完了”。</view></view>
+      <view class="rule-row"><text>3</text><view>录完可以回放；不满意就重录，满意再读下一句。</view></view>
+      <view class="rule-row"><text>4</text><view>全部录完后一起提交给老师。</view></view>
+      <view class="supplement" wx:if="{{lesson.recordingPrompt}}">老师补充：{{lesson.recordingPrompt}}</view>
+      <view class="retake-list" wx:if="{{planMode === 'retake'}}">
+        <view class="retake-row" wx:for="{{items}}" wx:key="id">
+          <view class="retake-no">第 {{item.order}} 句</view>
+          <view class="retake-feedback">{{item.teacherFeedback || '老师请你再读一次'}}</view>
+        </view>
+      </view>
+      <view class="primary-btn wide-action" bindtap="startPractice">{{isTeacherPreview ? '开始预览' : planMode === 'retake' ? '开始补录' : '开始朗读'}}</view>
+    </view>
+    <view class="attempt-note" wx:if="{{roundCount}}">这项任务已经提交过 {{roundCount}} 轮</view>
+  </block>
+
+  <block wx:elif="{{state === 'practice'}}">
+    <view class="progress-head">
+      <view class="progress-label">已录 {{recordedCount}} / {{totalCount}} 句</view>
+      <view class="progress-link" bindtap="openReview">{{recordedCount === totalCount ? '去提交 →' : '查看全部'}}</view>
+    </view>
+    <view class="progress-track"><view class="progress-fill" style="width: {{progressPercent}}%;"></view></view>
+    <scroll-view class="dot-scroll" scroll-x enable-flex>
+      <view class="dot-row">
+        <view class="dot {{item.recorded ? 'dot-done' : ''}} {{index === currentIndex ? 'dot-current' : ''}}" wx:for="{{items}}" wx:key="id" data-index="{{index}}" bindtap="goToItem">{{item.order}}</view>
+      </view>
+    </scroll-view>
+
+    <view class="card sentence-card">
+      <view class="sentence-no">第 {{currentItem.order}} 句</view>
+      <image wx:if="{{currentItem.imageUrl}}" class="sentence-image" src="{{currentItem.imageUrl}}" mode="aspectFit" bindtap="previewImage"></image>
+      <view class="sentence-image sentence-image-missing" wx:elif="{{currentItem.hasImage}}">提示图片暂时打不开，请看文字提示</view>
+      <view class="hint-text" wx:if="{{currentItem.hint}}">{{currentItem.hint}}</view>
+      <view class="sentence-text" wx:if="{{currentItem.text && (textMode === 'show' || currentItem.revealed)}}">{{currentItem.text}}</view>
+      <view class="reveal-btn" wx:elif="{{textMode === 'reveal' && currentItem.text}}" bindtap="revealText">看原句</view>
+      <view class="teacher-note" wx:if="{{currentItem.teacherFeedback}}">老师：{{currentItem.teacherFeedback}}</view>
+    </view>
+
+    <view class="card action-card">
+      <block wx:if="{{itemState === 'idle'}}">
+        <view class="item-message" wx:if="{{itemMessage}}">{{itemMessage}}</view>
+        <view class="record-main" bindtap="startRecording">● 开始朗读</view>
+      </block>
+      <block wx:elif="{{itemState === 'starting'}}">
+        <view class="state-copy">正在打开麦克风…</view>
+      </block>
+      <block wx:elif="{{itemState === 'recording' || itemState === 'stopping'}}">
+        <view class="recording-dot"></view>
+        <view class="recording-timer">{{elapsedLabel}}</view>
+        <view class="state-copy">最长还剩 {{remainingLabel}}</view>
+        <view class="finish-main" bindtap="finishRecording">{{itemState === 'stopping' ? '正在保存…' : '读完了'}}</view>
+      </block>
+      <block wx:else>
+        <view class="recorded-label">这一句已录好 · {{currentItem.durationLabel}}</view>
+        <view class="recorded-actions">
+          <view class="ghost-btn half-action" data-id="{{currentItem.id}}" bindtap="playItem">{{playingItemId === currentItem.id ? '■ 停止' : '▶ 回放'}}</view>
+          <view class="ghost-btn half-action" bindtap="rerecord">重录</view>
+        </view>
+        <view class="primary-btn wide-action" bindtap="goNext">{{recordedCount === totalCount ? '全部录完，去提交' : '下一句'}}</view>
+      </block>
+    </view>
+
+    <view class="nav-row">
+      <view class="nav-btn {{currentIndex === 0 ? 'nav-off' : ''}}" bindtap="goPrevious">‹ 上一句</view>
+      <view class="nav-btn {{currentIndex === totalCount - 1 ? 'nav-off' : ''}}" bindtap="goNext">下一句 ›</view>
+    </view>
+  </block>
+
+  <block wx:elif="{{state === 'review' || state === 'upload_error'}}">
+    <view class="hero">
+      <view class="eyebrow">提交前听一遍</view>
+      <view class="hero-title">{{totalCount}} 句都录好了</view>
+      <view class="hero-subtitle">点“回放”检查，想重录就点那一句的“重录”。</view>
+    </view>
+    <view class="card review-card">
+      <view class="review-row" wx:for="{{items}}" wx:key="id">
+        <view class="review-main">
+          <view class="review-no">第 {{item.order}} 句 · {{item.durationLabel}}</view>
+          <view class="review-text">{{item.text && (textMode === 'show' || item.revealed) ? item.text : item.hint || '看图片提示'}}</view>
+        </view>
+        <view class="review-actions">
+          <view class="mini-btn" data-id="{{item.id}}" bindtap="playItem">{{playingItemId === item.id ? '停止' : '回放'}}</view>
+          <view class="mini-btn" data-index="{{index}}" bindtap="backToPractice">重录</view>
+        </view>
+      </view>
+    </view>
+    <view class="error-box" wx:if="{{state === 'upload_error'}}">{{message}}。已录的句子还在本页，检查网络后点下面按钮重新提交。</view>
+    <view class="primary-btn wide-action" bindtap="submitAll">{{isTeacherPreview ? '完成预览' : state === 'upload_error' ? '重新提交' : '提交全部 ' + totalCount + ' 句'}}</view>
+  </block>
+
+  <view class="card center-card" wx:elif="{{state === 'uploading'}}">
+    <view class="loading-ring"></view>
+    <view class="state-title">正在提交</view>
+    <view class="state-copy">{{uploadDone}} / {{uploadTotal}} 句</view>
+  </view>
+
+  <view class="card center-card" wx:elif="{{state === 'success'}}">
+    <view class="success-mark">✓</view>
+    <view class="state-title">{{isTeacherPreview ? '预览完成' : submittedScope === 'retake' ? '补录已提交' : '全部句子已提交'}}</view>
+    <view class="state-copy" wx:if="{{isTeacherPreview}}">教师预览的录音留在本机，学生记录保持原状态。</view>
+    <view class="state-copy" wx:else>第 {{submittedAttemptNo}} 轮 · {{totalCount}} 句 · 等老师逐句检查</view>
+    <view class="late-pill" wx:if="{{submittedLate}}">逾期提交</view>
+    <view class="primary-btn wide-action" bindtap="goBack">返回课程</view>
+  </view>
+</view>

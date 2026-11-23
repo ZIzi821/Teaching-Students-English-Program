@@ -4,7 +4,12 @@ const {
 } = require("../../utils/lessonTemplates");
 const { findKetSpeakingTask } = require("../../utils/ketSpeakingTasks");
 const { findKetMockSet } = require("../../utils/ketMockSets");
-const { getSafeRecordingTaskType } = require("../../utils/lessonTaskOptions");
+const {
+  createPromptReadingItem,
+  getPromptReadingFormError,
+  getSafeRecordingTaskType,
+  toPromptReadingPayload,
+} = require("../../utils/lessonTaskOptions");
 const { buildNextLessonTitleSuggestion } = require("../../utils/lessonTitle");
 const { usesLessonDurationMinutes } = require("../../utils/lessonDuration");
 const { callCloud } = require("../../utils/cloud");
@@ -178,6 +183,9 @@ Page({
       followReadingGapSeconds: 2,
       followReadingResponseSeconds: 8,
       followReadingContent: "",
+      promptReadingItems: [],
+      promptReadingTextMode: "reveal",
+      promptReadingResponseSeconds: 20,
       ketSpeakingTaskId: "",
       ketMockSetId: "",
       lessonFocusType: "",
@@ -541,7 +549,7 @@ Page({
       homeworkDueDays: Number.isInteger(Number(lesson.homeworkDueDays))
         ? Number(lesson.homeworkDueDays)
         : -1,
-      recordingTaskType: ["follow_reading", "ket_official", "ket_mock"].includes(lesson.recordingTaskType)
+      recordingTaskType: ["follow_reading", "prompt_reading", "ket_official", "ket_mock"].includes(lesson.recordingTaskType)
         ? lesson.recordingTaskType
         : "manual",
       recordingPrompt: lesson.recordingPrompt || "",
@@ -619,7 +627,7 @@ Page({
       homeworkDueDays: Number.isInteger(Number(lesson.homeworkDueDays))
         ? Number(lesson.homeworkDueDays)
         : -1,
-      recordingTaskType: ["follow_reading", "ket_official", "ket_mock"].includes(lesson.recordingTaskType)
+      recordingTaskType: ["follow_reading", "prompt_reading", "ket_official", "ket_mock"].includes(lesson.recordingTaskType)
         ? lesson.recordingTaskType
         : "manual",
       recordingPrompt: lesson.recordingPrompt || "",
@@ -635,6 +643,9 @@ Page({
         ? Number(lesson.followReadingResponseSeconds)
         : 8,
       followReadingContent: (lesson.followReadingItems || []).map((item) => item.text || "").filter(Boolean).join("\n"),
+      promptReadingItems: (lesson.promptReadingItems || []).map((item) => createPromptReadingItem(item)),
+      promptReadingTextMode: lesson.promptReadingTextMode || "reveal",
+      promptReadingResponseSeconds: Number(lesson.promptReadingResponseSeconds) || 20,
       ketSpeakingTaskId: lesson.ketSpeakingTaskId || "",
       ketMockSetId: lesson.ketMockSetId || "",
       lessonFocusType: lesson.lessonFocusType || "",
@@ -697,13 +708,36 @@ Page({
         : teacherFeedbackTags.length ? "" : String(item.teacherFeedback || "");
       const status = item.status || "待检查";
       const isFollowReading = item.recordingMode === "follow_reading";
+      const isPromptReading = item.recordingMode === "prompt_reading";
+      const roundNo = Number(item.attemptNo) || 1;
+      const displayName = isFollowReading
+        ? `第 ${roundNo} 轮 · 第 ${Number(item.followReadingItemOrder) || index + 1} 条`
+        : isPromptReading
+          ? `第 ${roundNo} 轮 · 第 ${Number(item.promptReadingItemOrder) || index + 1} 句`
+          : `第 ${Number(item.attemptNo) || submissions.length - index} 次录音`;
+      // 看提示朗读按轮分组：每轮第一句前显示轮次标题和“其余标为朗读正确”。
+      const previous = submissions[index - 1];
+      const startsPromptRound = isPromptReading && item.batchId
+        && !(previous && previous.batchId === item.batchId);
+      const roundItems = startsPromptRound
+        ? submissions.filter((candidate) => candidate.batchId === item.batchId)
+        : [];
       return Object.assign({}, item, {
         durationLabel: formatDuration(item.duration),
         displayAttemptNo: Number(item.attemptNo) || submissions.length - index,
-        displayName: isFollowReading
-          ? `第 ${Number(item.attemptNo) || 1} 轮 · 第 ${Number(item.followReadingItemOrder) || index + 1} 条`
-          : `第 ${Number(item.attemptNo) || submissions.length - index} 次录音`,
-        displayPrompt: isFollowReading ? String(item.followReadingItemText || "") : "",
+        displayName,
+        reviewTitle: isFollowReading || isPromptReading ? `${displayName} 反馈` : `第 ${Number(item.attemptNo) || submissions.length - index} 次录音反馈`,
+        displayPrompt: isFollowReading
+          ? String(item.followReadingItemText || "")
+          : isPromptReading ? String(item.promptReadingItemText || "") : "",
+        displayHint: isPromptReading ? String(item.promptReadingItemHint || "") : "",
+        roundHeader: startsPromptRound ? {
+          batchId: item.batchId,
+          label: item.promptReadingScope === "retake"
+            ? `第 ${roundNo} 轮 · 补录 ${roundItems.length} 句`
+            : `第 ${roundNo} 轮 · 共 ${roundItems.length} 句`,
+          pendingCount: roundItems.filter((candidate) => (candidate.status || "待检查") === "待检查").length,
+        } : null,
         status,
         teacherFeedback: item.teacherFeedback || "",
         teacherFeedbackTags,
@@ -957,6 +991,13 @@ Page({
         return;
       }
     }
+    if (form.recordingTaskEnabled && form.recordingTaskType === "prompt_reading") {
+      const promptError = getPromptReadingFormError(form.promptReadingItems);
+      if (promptError) {
+        wx.showToast({ title: promptError, icon: "none" });
+        return;
+      }
+    }
     const learningObservations = form.learningObservations
       .filter((item) => String(item.content || "").trim())
       .map((item) => ({
@@ -974,6 +1015,7 @@ Page({
     const workspacePayload = Object.assign({ lessonId: this.data.lessonId }, form, {
       learningObservations,
       skillTargetIds,
+      promptReadingItems: toPromptReadingPayload(form.promptReadingItems),
     });
     if (!durationApplies) delete workspacePayload.durationMinutes;
     this.setData({ savingWorkspace: true });
@@ -1657,6 +1699,15 @@ Page({
       });
       return;
     }
+    if (this.data.lesson.recordingTaskType === "prompt_reading") {
+      const promptPreviewQuery = this.data.isTeacherPreview
+        ? `&mode=teacherPreview&previewStudentId=${encodeURIComponent(this.data.previewStudentId || this.data.lesson.studentId || "")}`
+        : "";
+      wx.navigateTo({
+        url: `/follow-reading/pages/prompt-reading/index?lessonId=${encodeURIComponent(this.data.lessonId)}${promptPreviewQuery}`,
+      });
+      return;
+    }
     if (this.data.isTeacherPreview) {
       wx.showToast({ title: "教师预览 · 录音由学生本人完成", icon: "none" });
       return;
@@ -1818,6 +1869,37 @@ Page({
     });
   },
 
+  reviewRecordingRound(e) {
+    const batchId = String(e.currentTarget.dataset.batchId || "");
+    const pendingCount = Number(e.currentTarget.dataset.count) || 0;
+    if (!this.data.isTeacher || !batchId || !pendingCount || this.data.savingRecordingReview) return;
+    wx.showModal({
+      title: "其余句子标为朗读正确",
+      content: `本轮还有 ${pendingCount} 句待检查，将全部标为“朗读正确”。已经填写反馈的句子保持原样。`,
+      confirmText: "全部标记",
+      success: (res) => {
+        if (!res.confirm) return;
+        this.setData({ savingRecordingReview: true });
+        wx.showLoading({ title: "保存中", mask: true });
+        callCloud({
+          type: "reviewLessonRecordingBatch",
+          data: { lessonId: this.data.lessonId, batchId },
+        }).then((callRes) => {
+          const result = callRes.result || {};
+          if (!result.success) throw new Error(result.message || "保存失败");
+          wx.showToast({ title: `已标记 ${result.reviewedCount || 0} 句`, icon: "none" });
+          this.loadLesson();
+        }).catch((err) => {
+          console.error(err);
+          wx.showToast({ title: err.message || "保存失败", icon: "none" });
+        }).finally(() => {
+          wx.hideLoading();
+          this.setData({ savingRecordingReview: false });
+        });
+      },
+    });
+  },
+
   markRecordingReviewed(e) {
     if (!this.data.isTeacher || this.data.savingRecordingReview) return;
     const submission = this.data.submissions[Number(e.currentTarget.dataset.index)];
@@ -1838,6 +1920,7 @@ Page({
       recordingReviewEditor: {
         submissionId: submission._id,
         displayAttemptNo: submission.displayAttemptNo,
+        reviewTitle: submission.reviewTitle,
         durationLabel: submission.durationLabel,
         status,
         selectedTags,
